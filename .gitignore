@@ -1,4 +1,2 @@
-*.sql
-*.sqlite3
-*.env
-*.database
+.env
+*.xml

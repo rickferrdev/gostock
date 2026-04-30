@@ -1,0 +1,13 @@
+{
+    "name": "Go",
+    "image": "mcr.microsoft.com/devcontainers/go:2-1.26-trixie",
+    "features": {
+        "ghcr.io/dhoeric/features/act": {
+            "version": "0.2.87"
+        },
+        "ghcr.io/devcontainers-extra/features/fish-apt-get": true,
+        "ghcr.io/devcontainers/features/docker-outside-of-docker": {
+            "moby": false
+        }
+    }
+}
