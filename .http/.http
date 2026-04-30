@@ -1,0 +1,87 @@
+### Settings
+@baseUrl = http://127.0.0.1:8080:8080/api/v1
+@contentType = application/json
+
+### ============================================================================
+### STOCKS
+### ============================================================================
+
+### Create a Stock
+POST {{baseUrl}}/stockss
+Content-Type: {{contentType}}
+
+{
+    "name": "Central Warehouse",
+    "capacity": 500
+}
+
+###
+GET  {{baseUrl}}/health HTTP/1.1
+Content-Type: {{contentType}}
+
+### List all Stocks
+GET {{baseUrl}}/stocks
+Content-Type: {{contentType}}
+
+### Get a Stock by ID
+# @prompt stockId
+GET {{baseUrl}}/stocks/{{stockId}}
+Content-Type: {{contentType}}
+
+### Update a Stock
+# @prompt stockId
+PUT {{baseUrl}}/stocks/{{stockId}}
+Content-Type: {{contentType}}
+
+{
+    "name": "Updated Warehouse",
+    "capacity": 750
+}
+
+### Delete a Stock
+# @prompt stockId
+DELETE {{baseUrl}}/stocks/{{stockId}}
+
+
+### ============================================================================
+### PRODUCTS
+### ============================================================================
+
+### List Products by Stock ID
+# @prompt stockId
+GET {{baseUrl}}/stocks/{{stockId}}/products
+Content-Type: {{contentType}}
+
+### Create a Product
+# @prompt stockId
+POST {{baseUrl}}/products
+Content-Type: {{contentType}}
+
+{
+    "name": "RGB Mechanical Keyboard",
+    "qtd": 50,
+    "price": 299,
+    "stock_id": "{{stockId}}"
+}
+
+### Get a Product by ID
+# @prompt productId
+GET {{baseUrl}}/products/{{productId}}
+Content-Type: {{contentType}}
+
+### Update a Product
+# @prompt productId
+# @prompt stockId
+PUT {{baseUrl}}/products/{{productId}}
+Content-Type: {{contentType}}
+
+{
+    "name": "Wireless Mechanical Keyboard",
+    "qtd": 45,
+    "price": 350,
+    "stock_id": "{{stockId}}"
+}
+
+### Delete a Product
+# @prompt productId
+DELETE {{baseUrl}}/products/{{productId}}
