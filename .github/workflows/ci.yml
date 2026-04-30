@@ -28,7 +28,6 @@ jobs:
             - uses: golang/govulncheck-action@v1
               with:
                   go-package: ./...
-                  check-library: true
 
     test:
         runs-on: "ubuntu-latest"
