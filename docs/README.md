@@ -1,6 +1,6 @@
 <div align="center">
 
-# 📦 Product Manager
+# 📦 GoStock
 
 <p align="center">
   <em>A RESTful API for managing products and stocks</em><br/>
