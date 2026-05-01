@@ -2,6 +2,7 @@ package product
 
 import (
 	"context"
+	"database/sql"
 	"testing"
 
 	"github.com/google/uuid"
@@ -30,374 +31,325 @@ func (suite *test) SetupTest() {
 	suite.NoError(errService)
 }
 
-func (suite *test) TearDownSuite() {
+func (suite *test) TearDownTest() {
 	suite.ctrl.Finish()
+}
+
+func (suite *test) RequirePortError(err error, expected *ports.Error) {
+	var got *ports.Error
+
+	suite.Require().ErrorAs(err, &got)
+	suite.Require().Equal(expected.Code, got.Code)
+	suite.Require().Equal(expected.Status, got.Status)
+	suite.Require().Equal(expected.Message, got.Message)
 }
 
 func (suite *test) TestValidateProduct() {
 	stockID, productID := uuid.NewString(), uuid.NewString()
-	invalidProduct := factory.NewProduct("abc", "abc")
-	validProduct := factory.NewProduct(productID, stockID)
 
 	table := []struct {
-		name         string
-		desc         string
-		inputProduct *domain.Product
-		expectErr    error
+		name   string
+		desc   string
+		expect error
+		setup  func() *domain.Product
 	}{
 		{
-			name:         "Success",
-			desc:         "should pass validation for a well-formed product",
-			inputProduct: validProduct,
-			expectErr:    nil,
+			name: "Success",
+			desc: "should pass validation for a well-formed product",
+			setup: func() *domain.Product {
+				return factory.NewProduct(productID, stockID, "Product", 10, 50)
+			},
+			expect: nil,
 		},
 		{
-			name:         "InvalidProduct",
-			desc:         "should return 400 when product fields are not valid UUIDs",
-			inputProduct: invalidProduct,
-			expectErr:    ports.NewBadRequestError(nil),
+			name: "InvalidProduct",
+			desc: "should return 400 when product fields are not valid UUIDs",
+			setup: func() *domain.Product {
+				return factory.NewProduct("", stockID, "Product", 10, 50)
+			},
+			expect: ports.NewBadRequestError(nil),
 		},
 	}
 
 	for _, tt := range table {
 		suite.Run(tt.name, func() {
-			err := suite.service.ValidateProduct(tt.inputProduct)
+			product := tt.setup()
+			err := suite.service.ValidateProduct(product)
 
-			if tt.expectErr != nil {
-				suite.ErrorAs(err, &tt.expectErr, tt.desc)
+			if tt.expect != nil {
+				suite.RequirePortError(err, tt.expect.(*ports.Error))
 				return
 			}
 
-			suite.NoError(err, tt.desc)
+			suite.Require().NoError(err, tt.desc)
 		})
 	}
 }
 
 func (suite *test) TestByStockID() {
 	productID, stockID := uuid.NewString(), uuid.NewString()
-	validProduct := factory.NewProductList(5, productID, stockID)
 
 	table := []struct {
-		name          string
-		desc          string
-		input         string
-		mockProduct   []*domain.Product
-		mockErr       error
-		expectProduct []*domain.Product
-		expectErr     error
-		callsRepo     bool
+		name   string
+		desc   string
+		input  string
+		setup  func() []*domain.Product
+		expect error
 	}{
 		{
-			name:          "Success",
-			desc:          "should return all products for a valid stock ID",
-			input:         stockID,
-			mockProduct:   validProduct,
-			expectProduct: validProduct,
-			mockErr:       nil,
-			expectErr:     nil,
-			callsRepo:     true,
+			name:  "Success",
+			desc:  "should return all products for a valid stock ID",
+			input: stockID,
+			setup: func() []*domain.Product {
+				products := factory.NewProductSlice(5, productID, stockID)
+
+				suite.product.EXPECT().
+					ByStockID(gomock.Any(), stockID).Times(1).Return(products, nil)
+				return products
+			},
+			expect: nil,
 		},
 		{
-			name:      "InvalidStockID",
-			desc:      "should return 400 when stock ID is not a valid UUID",
-			input:     "ABC",
-			mockErr:   ports.NewBadRequestError(nil),
-			expectErr: ports.NewBadRequestError(nil),
-			callsRepo: false,
+			name:   "InvalidStockID",
+			desc:   "should return 400 when stock ID is not a valid UUID",
+			input:  "ABC",
+			expect: ports.NewBadRequestError(nil),
+			setup: func() []*domain.Product {
+				suite.product.EXPECT().ByStockID(gomock.Any(), "ABC").Times(0).Return(nil, ports.NewBadRequestError(nil))
+				return nil
+			},
 		},
 		{
-			name:      "NotFound",
-			desc:      "should return 404 when no products exist for the stock ID",
-			input:     stockID,
-			mockErr:   ports.NewNotFoundError(nil),
-			expectErr: ports.NewNotFoundError(nil),
-			callsRepo: true,
+			name:   "NotFound",
+			desc:   "should return 404 when no products exist for the stock ID",
+			input:  stockID,
+			expect: ports.NewNotFoundError(nil),
+			setup: func() []*domain.Product {
+				suite.product.EXPECT().ByStockID(gomock.Any(), stockID).Times(1).Return(nil, sql.ErrNoRows)
+				return nil
+			},
 		},
 		{
-			name:      "InternalError",
-			desc:      "should return 500 when repository fails unexpectedly",
-			input:     stockID,
-			mockErr:   ports.NewInternalError(nil),
-			expectErr: ports.NewInternalError(nil),
-			callsRepo: true,
+			name:   "InternalError",
+			desc:   "should return 500 when repository fails unexpectedly",
+			input:  stockID,
+			expect: ports.NewInternalError(nil),
+			setup: func() []*domain.Product {
+				suite.product.EXPECT().ByStockID(gomock.Any(), stockID).Times(1).Return(nil, ports.NewInternalError(nil))
+				return nil
+			},
 		},
 	}
 
 	for _, tt := range table {
-		tt := tt
 		suite.Run(tt.name, func() {
-			if tt.callsRepo {
-				suite.product.EXPECT().
-					ByStockID(gomock.Any(), tt.input).
-					Times(1).
-					Return(tt.mockProduct, tt.mockErr)
-			}
+			expectProducts := tt.setup()
 
-			product, err := suite.service.ByStockID(context.Background(), tt.input)
+			find, err := suite.service.ByStockID(context.Background(), tt.input)
 
-			if tt.expectErr != nil {
-				suite.ErrorAs(err, &tt.expectErr, tt.desc)
+			if tt.expect != nil {
+				suite.RequirePortError(err, tt.expect.(*ports.Error))
 				return
 			}
-			suite.NoError(err)
-			suite.Equal(tt.expectProduct, product)
+			suite.Require().NoError(err, tt.desc)
+			suite.Require().Equal(expectProducts, find)
 		})
 	}
 }
 
 func (suite *test) TestByID() {
 	productID, stockID := uuid.NewString(), uuid.NewString()
-	validProduct := factory.NewProduct(productID, stockID)
 
 	table := []struct {
-		name           string
-		desc           string
-		inputID        string
-		productMock    *domain.Product
-		productMockErr error
-		expectProduct  *domain.Product
-		expectErr      error
-		callsRepo      bool
+		name   string
+		desc   string
+		input  string
+		setup  func() *domain.Product
+		expect error
 	}{
 		{
-			name:           "Success",
-			desc:           "should return the product for a valid ID",
-			inputID:        productID,
-			productMock:    validProduct,
-			expectProduct:  validProduct,
-			productMockErr: nil,
-			expectErr:      nil,
-			callsRepo:      true,
+			name:  "Success",
+			desc:  "should return the product for a valid ID",
+			input: productID,
+			setup: func() *domain.Product {
+				product := factory.NewProduct(productID, stockID, "Product", 10, 50)
+				suite.product.EXPECT().ByID(gomock.Any(), productID).Times(1).Return(product, nil)
+				return product
+			},
+			expect: nil,
 		},
 		{
-			name:           "InvalidProductID",
-			desc:           "should return 400 when product ID is not a valid UUID",
-			inputID:        "ABC",
-			productMockErr: ports.NewBadRequestError(nil),
-			expectErr:      ports.NewBadRequestError(nil),
-			callsRepo:      false,
+			name:  "InvalidProductID",
+			desc:  "should return 400 when product ID is not a valid UUID",
+			input: "ABC",
+			setup: func() *domain.Product {
+				return nil
+			},
+			expect: ports.NewBadRequestError(nil),
 		},
 		{
-			name:           "NotFound",
-			desc:           "should return 404 when product does not exist",
-			inputID:        productID,
-			productMockErr: ports.NewNotFoundError(nil),
-			expectErr:      ports.NewNotFoundError(nil),
-			callsRepo:      true,
+			name:  "NotFound",
+			desc:  "should return 404 when product does not exist",
+			input: productID,
+			setup: func() *domain.Product {
+				suite.product.EXPECT().ByID(gomock.Any(), productID).Times(1).Return(nil, sql.ErrNoRows)
+				return nil
+			},
+			expect: ports.NewNotFoundError(nil),
 		},
 		{
-			name:           "InternalError",
-			desc:           "should return 500 when repository fails unexpectedly",
-			inputID:        productID,
-			productMockErr: ports.NewInternalError(nil),
-			expectErr:      ports.NewInternalError(nil),
-			callsRepo:      true,
+			name:  "InternalError",
+			desc:  "should return 500 when repository fails unexpectedly",
+			input: productID,
+			setup: func() *domain.Product {
+				suite.product.EXPECT().ByID(gomock.Any(), productID).Times(1).Return(nil, ports.NewInternalError(nil))
+				return nil
+			},
+			expect: ports.NewInternalError(nil),
 		},
 	}
 
 	for _, tt := range table {
-		tt := tt
 		suite.Run(tt.name, func() {
-			if tt.callsRepo {
-				suite.product.EXPECT().
-					ByID(gomock.Any(), tt.inputID).
-					Times(1).
-					Return(tt.productMock, tt.productMockErr)
-			}
+			product := tt.setup()
 
-			product, err := suite.service.ByID(context.Background(), tt.inputID)
+			find, err := suite.service.ByID(context.Background(), tt.input)
 
-			if tt.expectErr != nil {
-				suite.ErrorAs(err, &tt.expectErr, tt.desc)
+			if tt.expect != nil {
+				suite.RequirePortError(err, tt.expect.(*ports.Error))
 				return
 			}
-			suite.NoError(err)
-			suite.Equal(tt.expectProduct, product)
+			suite.Require().NoError(err, tt.desc)
+			suite.Require().Equal(product, find)
 		})
 	}
 }
 
 func (suite *test) TestCreate() {
-	validProduct := factory.NewProduct("", uuid.NewString())
-	invalidProduct := factory.NewProduct("abc", uuid.NewString())
-
 	table := []struct {
-		name           string
-		desc           string
-		input          *domain.Product
-		productMock    *domain.Product
-		productMockErr error
-		expectProduct  *domain.Product
-		expectErr      error
-		callsRepo      bool
+		name   string
+		desc   string
+		expect error
+		setup  func() *domain.Product
 	}{
 		{
-			name:          "Success",
-			desc:          "should create the product and return it",
-			input:         validProduct,
-			productMock:   validProduct,
-			expectProduct: validProduct,
-			callsRepo:     true,
+			name: "Success",
+			desc: "should create the product and return nil",
+			setup: func() *domain.Product {
+				input := factory.NewProduct("", uuid.NewString(), "Product", 10, 100)
+				suite.product.EXPECT().CreateAtomic(gomock.Any(), gomock.Any()).Times(1).Return(nil)
+				return input
+			},
 		},
 		{
-			name:      "InvalidProductID",
-			desc:      "should return 409 when product ID already exists",
-			input:     invalidProduct,
-			expectErr: ports.NewConflictError(nil),
-			callsRepo: false,
+			name:   "InvalidStockID",
+			desc:   "should return 400 when stock ID is not a valid UUID",
+			expect: ports.NewBadRequestError(nil),
+			setup: func() *domain.Product {
+				return factory.NewProduct("", "ABC", "Product", 10, 100)
+			},
+		},
+		{
+			name:   "InternalError",
+			desc:   "should return 500 when repository fails unexpectedly",
+			expect: ports.NewInternalError(nil),
+			setup: func() *domain.Product {
+				suite.product.EXPECT().CreateAtomic(gomock.Any(), gomock.Any()).Times(1).Return(ports.NewInternalError(nil))
+				return factory.NewProduct("", uuid.NewString(), "Product", 10, 100)
+			},
 		},
 	}
 
 	for _, tt := range table {
 		suite.Run(tt.name, func() {
-			if tt.callsRepo {
-				suite.product.EXPECT().
-					CreateAtomic(gomock.Any(), gomock.Any()).
-					Times(1).
-					Return(tt.productMockErr)
-			}
+			input := tt.setup()
 
-			_, err := suite.service.Create(context.Background(), tt.input)
-
-			if tt.expectErr != nil {
-				suite.ErrorAs(err, &tt.expectErr, tt.desc)
+			created, err := suite.service.Create(context.Background(), input)
+			if tt.expect != nil {
+				suite.RequirePortError(err, tt.expect.(*ports.Error))
 				return
 			}
 
-			suite.NoError(err)
+			suite.Require().NoError(err, tt.desc)
+			suite.Require().NotNil(created)
 		})
 	}
 }
 
 func (suite *test) TestUpdate() {
 	table := []struct {
-		name      string
-		desc      string
-		input     *domain.Product
-		expectErr error
-		setup     func() *domain.Product
+		name   string
+		desc   string
+		expect error
+		setup  func() *domain.Product
 	}{
 		{
 			name: "Success",
 			desc: "should update the product and return nil",
 			setup: func() *domain.Product {
 				productID, stockID := uuid.NewString(), uuid.NewString()
-				input := factory.NewProduct(productID, stockID)
-				oldProduct := factory.NewProduct(productID, stockID)
-				stock := &domain.Stock{ID: stockID, Capacity: 100}
+				input := factory.NewProduct(productID, stockID, "Updated Product", 15, 150)
+				old := factory.NewProduct(productID, stockID, "Product", 10, 100)
+				stock := factory.NewStock(stockID, "Stock", 100)
+				stock.Push(old)
 
-				suite.product.EXPECT().
-					ByID(gomock.Any(), productID).
-					Times(1).
-					Return(oldProduct, nil)
-
-				suite.stock.EXPECT().
-					ByID(gomock.Any(), stockID).
-					Times(1).
-					Return(stock, nil)
-
-				suite.product.EXPECT().
-					UpdateAtomic(gomock.Any(), gomock.Any()).
-					Times(1).
-					Return(nil)
+				suite.product.EXPECT().ByID(gomock.Any(), input.ID).Times(1).Return(old, nil)
+				suite.stock.EXPECT().ByID(gomock.Any(), input.StockID).Times(1).Return(stock, nil)
+				suite.product.EXPECT().UpdateAtomic(gomock.Any(), gomock.Any()).Times(1).Return(nil)
 
 				return input
 			},
 		},
 		{
-			name:      "InvalidProduct",
-			desc:      "should return 400 when product fields are invalid",
-			expectErr: ports.NewBadRequestError(nil),
+			name:   "InvalidProduct",
+			desc:   "should return 400 when product fields are invalid",
+			expect: ports.NewBadRequestError(nil),
 			setup: func() *domain.Product {
-				return &domain.Product{}
+				return factory.NewProduct("ABC", "DEF", "Product", 10, 100)
 			},
 		},
 		{
-			name:      "ProductNotFound",
-			desc:      "should return 404 when product does not exist",
-			expectErr: ports.NewNotFoundError(nil),
+			name:   "ProductNotFound",
+			desc:   "should return 404 when product does not exist",
+			expect: ports.NewNotFoundError(nil),
+			setup: func() *domain.Product {
+				input := factory.NewProduct(uuid.NewString(), uuid.NewString(), "Product", 10, 100)
+
+				suite.product.EXPECT().ByID(gomock.Any(), input.ID).Times(1).Return(nil, sql.ErrNoRows)
+				return input
+			},
+		},
+		{
+			name:   "CapacityExceeded",
+			desc:   "should return capacity exceeded when stock cannot fit the new quantity",
+			expect: ports.NewCapacityExceeded(nil),
 			setup: func() *domain.Product {
 				productID, stockID := uuid.NewString(), uuid.NewString()
-				input := factory.NewProduct(productID, stockID)
+				input := factory.NewProduct(productID, stockID, "Product", 30, 100)
+				old := factory.NewProduct(productID, stockID, "Product", 1, 100)
+				stock := factory.NewStock(stockID, "Stock", 10)
+				stock.Push(old)
 
-				suite.product.EXPECT().
-					ByID(gomock.Any(), productID).
-					Times(1).
-					Return(nil, ports.NewNotFoundError(nil))
+				suite.product.EXPECT().ByID(gomock.Any(), input.ID).Times(1).Return(old, nil)
+				suite.stock.EXPECT().ByID(gomock.Any(), input.StockID).Times(1).Return(stock, nil)
 
 				return input
 			},
 		},
 		{
-			name:      "StockNotFound",
-			desc:      "should return 404 when stock of the product does not exist",
-			expectErr: ports.NewNotFoundError(nil),
+			name:   "InternalError",
+			desc:   "should return 500 when repository fails on update",
+			expect: ports.NewInternalError(nil),
 			setup: func() *domain.Product {
 				productID, stockID := uuid.NewString(), uuid.NewString()
-				input := factory.NewProduct(productID, stockID)
-				oldProduct := factory.NewProduct(productID, stockID)
+				input := factory.NewProduct(productID, stockID, "Product", 30, 100)
+				old := factory.NewProduct(productID, stockID, "Product", 10, 100)
+				stock := factory.NewStock(stockID, "Stock", 100)
+				stock.Push(old)
 
-				suite.product.EXPECT().
-					ByID(gomock.Any(), productID).
-					Times(1).
-					Return(oldProduct, nil)
-
-				suite.stock.EXPECT().
-					ByID(gomock.Any(), stockID).
-					Times(1).
-					Return(nil, ports.NewNotFoundError(nil))
-
-				return input
-			},
-		},
-		{
-			name:      "CapacityExceeded",
-			desc:      "should return capacity exceeded when stock cannot fit the new quantity",
-			expectErr: ports.NewCapacityExceeded(nil),
-			setup: func() *domain.Product {
-				productID, stockID := uuid.NewString(), uuid.NewString()
-				input := factory.NewProduct(productID, stockID)
-				oldProduct := &domain.Product{ID: productID, StockID: stockID, Qtd: 21}
-				stock := &domain.Stock{ID: stockID, Capacity: 20}
-
-				suite.product.EXPECT().
-					ByID(gomock.Any(), productID).
-					Times(1).
-					Return(oldProduct, nil)
-
-				suite.stock.EXPECT().
-					ByID(gomock.Any(), stockID).
-					Times(1).
-					Return(stock, nil)
-
-				return input
-			},
-		},
-		{
-			name:      "InternalError",
-			desc:      "should return 500 when repository fails on update",
-			expectErr: ports.NewInternalError(nil),
-			setup: func() *domain.Product {
-				productID, stockID := uuid.NewString(), uuid.NewString()
-				input := factory.NewProduct(productID, stockID)
-				oldProduct := factory.NewProduct(productID, stockID)
-				stock := &domain.Stock{ID: stockID, Capacity: 100}
-
-				suite.product.EXPECT().
-					ByID(gomock.Any(), productID).
-					Times(1).
-					Return(oldProduct, nil)
-
-				suite.stock.EXPECT().
-					ByID(gomock.Any(), stockID).
-					Times(1).
-					Return(stock, nil)
-
-				suite.product.EXPECT().
-					UpdateAtomic(gomock.Any(), gomock.Any()).
-					Times(1).
-					Return(ports.NewInternalError(nil))
-
+				suite.product.EXPECT().ByID(gomock.Any(), input.ID).Times(1).Return(old, nil)
+				suite.stock.EXPECT().ByID(gomock.Any(), input.StockID).Times(1).Return(stock, nil)
+				suite.product.EXPECT().UpdateAtomic(gomock.Any(), gomock.Any()).Times(1).Return(ports.NewInternalError(nil))
 				return input
 			},
 		},
@@ -409,61 +361,50 @@ func (suite *test) TestUpdate() {
 
 			err := suite.service.Update(context.Background(), input)
 
-			if tt.expectErr != nil {
-				suite.ErrorAs(err, &tt.expectErr, tt.desc)
+			if tt.expect != nil {
+				suite.RequirePortError(err, tt.expect.(*ports.Error))
 				return
 			}
 
-			suite.NoError(err, tt.desc)
+			suite.Require().NoError(err, tt.desc)
 		})
 	}
 }
 
 func (suite *test) TestDelete() {
 	table := []struct {
-		name      string
-		desc      string
-		setup     func() string
-		expectErr error
+		name   string
+		desc   string
+		setup  func() string
+		expect error
 	}{
 		{
 			name: "Success",
-			desc: "",
+			desc: "should delete the product and return nil",
 			setup: func() string {
 				productID := uuid.NewString()
-
-				suite.product.EXPECT().
-					Delete(gomock.Any(), productID).
-					Times(1).
-					Return(nil)
-
+				suite.product.EXPECT().DeleteAtomic(gomock.Any(), productID).Times(1).Return(nil)
 				return productID
 			},
 		},
 		{
-			name:      "InvalidID",
-			expectErr: ports.NewBadRequestError(nil),
+			name:   "InvalidID",
+			desc:   "should return 400 when product ID is not a valid UUID",
+			expect: ports.NewBadRequestError(nil),
 			setup: func() string {
 				productID := "abc"
-
-				suite.product.EXPECT().
-					Delete(gomock.Any(), productID).
-					Times(0).
-					Return(nil)
+				suite.product.EXPECT().DeleteAtomic(gomock.Any(), productID).Times(0).Return(nil)
 
 				return productID
 			},
 		},
 		{
-			name:      "ProductNotFound",
-			expectErr: ports.NewNotFoundError(nil),
+			name:   "ProductNotFound",
+			desc:   "should return 404 when product does not exist",
+			expect: ports.NewNotFoundError(nil),
 			setup: func() string {
 				productID := uuid.NewString()
-				suite.product.EXPECT().
-					Delete(gomock.Any(), productID).
-					Times(1).
-					Return(ports.NewNotFoundError(nil))
-
+				suite.product.EXPECT().DeleteAtomic(gomock.Any(), productID).Times(1).Return(sql.ErrNoRows)
 				return productID
 			},
 		},
@@ -474,12 +415,12 @@ func (suite *test) TestDelete() {
 			input := tt.setup()
 
 			err := suite.service.Delete(context.Background(), input)
-			if tt.expectErr != nil {
-				suite.ErrorAs(err, &tt.expectErr, tt.desc)
+			if tt.expect != nil {
+				suite.RequirePortError(err, tt.expect.(*ports.Error))
 				return
 			}
 
-			suite.NoError(err, tt.desc)
+			suite.Require().NoError(err, tt.desc)
 		})
 	}
 }

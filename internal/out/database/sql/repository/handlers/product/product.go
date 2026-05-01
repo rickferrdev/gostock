@@ -144,9 +144,9 @@ func (repository *Repository) UpdateAtomic(ctx context.Context, product *domain.
 	})
 }
 
-func (repository *Repository) Delete(ctx context.Context, id string) error {
+func (repository *Repository) DeleteAtomic(ctx context.Context, id string) error {
 	return repository.db.RunInTx(ctx, &sql.TxOptions{}, func(ctx context.Context, tx bun.Tx) error {
-		res, err := repository.db.NewDelete().
+		res, err := tx.NewDelete().
 			Model((*schema.Product)(nil)).
 			Where("id = ?", id).
 			Exec(ctx)

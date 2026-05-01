@@ -4,18 +4,19 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http/httptest"
 	"testing"
 
 	"github.com/gofiber/fiber/v3"
 	"github.com/google/uuid"
-	"github.com/rickferrdev/gostock/internal/core/domain"
 	"github.com/rickferrdev/gostock/internal/core/domain/factory"
 	"github.com/rickferrdev/gostock/internal/core/ports"
 	"github.com/rickferrdev/gostock/internal/core/ports/helpers"
 	"github.com/rickferrdev/gostock/internal/infra/server"
 	"github.com/rickferrdev/gostock/internal/platform/validator"
 	"github.com/rickferrdev/gostock/internal/tests/mocks"
+	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 	"go.uber.org/mock/gomock"
 )
@@ -52,320 +53,373 @@ func (suite *test) TearDownSuite() {
 	suite.ctrl.Finish()
 }
 
+func (suite *test) RequirePortError(t *testing.T, body []byte, expected *ports.Error) {
+	var got *ports.Error
+	err := json.Unmarshal(body, &got)
+	require.NoError(t, err)
+
+	suite.Require().Equal(expected.Code, got.Code)
+	suite.Require().Equal(expected.Message, got.Message)
+}
+
 func (suite *test) TestByStockID() {
 	stockID, productID := uuid.NewString(), uuid.NewString()
-	product := factory.NewProductList(5, productID, stockID)
-	responseByStockIDProduct := helpers.ToDTOResponseByStockIDProduct(product)
+	productSlice := factory.NewProductSlice(5, productID, stockID)
 
 	table := []struct {
-		name              string
-		desc              string
-		url               string
-		input             string
-		expectOutput      ports.DTOResponseByStockIDProduct
-		expectStatus      int
-		productMockReturn []*domain.Product
-		stockMockErr      error
+		name   string
+		desc   string
+		url    string
+		input  string
+		status int
+		err    *ports.Error
+		setup  func() ports.DTOResponseByStockIDProduct
 	}{
 		{
-			name:              "Success",
-			desc:              "should return all products for a valid stock ID",
-			url:               "/api/v1/stocks/%s/products",
-			input:             stockID,
-			productMockReturn: product,
-			expectStatus:      fiber.StatusOK,
-			expectOutput:      responseByStockIDProduct,
+			name:   "Success",
+			desc:   "should return all products for a valid stock ID",
+			url:    "/api/v1/stocks/%s/products",
+			input:  stockID,
+			status: fiber.StatusOK,
+			setup: func() ports.DTOResponseByStockIDProduct {
+				suite.service.EXPECT().ByStockID(gomock.Any(), stockID).Times(1).Return(productSlice, nil)
+				return helpers.ToDTOResponseByStockIDProduct(productSlice)
+			},
 		},
 		{
-			name:         "InvalidStockID",
-			desc:         "should return 400 when stock ID is not a valid UUID",
-			url:          "/api/v1/stocks/%s/products",
-			input:        "bad",
-			stockMockErr: ports.NewBadRequestError(nil),
-			expectOutput: ports.DTOResponseByStockIDProduct{},
-			expectStatus: fiber.StatusBadRequest,
+			name:   "InvalidStockID",
+			desc:   "should return 400 when stock ID is not a valid UUID",
+			url:    "/api/v1/stocks/%s/products",
+			input:  "bad",
+			status: fiber.StatusBadRequest,
+			err:    ports.NewBadRequestError(nil),
+			setup: func() ports.DTOResponseByStockIDProduct {
+				suite.service.EXPECT().ByStockID(gomock.Any(), "bad").Times(1).Return(nil, ports.NewBadRequestError(nil))
+				return ports.DTOResponseByStockIDProduct{}
+			},
 		},
 		{
-			name:         "InternalError",
-			desc:         "should return 500 when service fails unexpectedly",
-			url:          "/api/v1/stocks/%s/products",
-			input:        "abc",
-			stockMockErr: ports.NewInternalError(nil),
-			expectOutput: ports.DTOResponseByStockIDProduct{},
-			expectStatus: fiber.StatusInternalServerError,
+			name:   "InternalError",
+			desc:   "should return 500 when service fails unexpectedly",
+			url:    "/api/v1/stocks/%s/products",
+			input:  stockID,
+			status: fiber.StatusInternalServerError,
+			err:    ports.NewInternalError(nil),
+			setup: func() ports.DTOResponseByStockIDProduct {
+				suite.service.EXPECT().ByStockID(gomock.Any(), stockID).Return(nil, ports.NewInternalError(nil)).Times(1)
+				return ports.DTOResponseByStockIDProduct{}
+			},
 		},
 	}
 
 	for _, tt := range table {
 		suite.Run(tt.name, func() {
-			suite.service.EXPECT().
-				ByStockID(gomock.Any(), tt.input).
-				Return(tt.productMockReturn, tt.stockMockErr).
-				Times(1)
-
 			url := fmt.Sprintf(tt.url, tt.input)
+			expect := tt.setup()
 
 			request := httptest.NewRequest(fiber.MethodGet, url, nil)
 			resp, err := suite.app.Test(request)
-			suite.NoError(err)
+			suite.Require().NoError(err)
 
-			suite.Equal(tt.expectStatus, resp.StatusCode, tt.desc)
+			body, err := io.ReadAll(resp.Body)
+			suite.Require().NoError(err)
+			suite.Require().Equal(tt.status, resp.StatusCode)
+
+			if tt.err != nil {
+				suite.RequirePortError(suite.T(), body, tt.err)
+				return
+			}
+
+			var got ports.DTOResponseByStockIDProduct
+			suite.Require().NoError(json.Unmarshal(body, &got))
+			suite.Require().Equal(expect, got, tt.desc)
 		})
 	}
 }
 
 func (suite *test) TestByID() {
-	stockID := uuid.NewString()
-	product := factory.NewProduct(uuid.NewString(), uuid.NewString())
-	responseByIDProduct := helpers.ToDTOResponseByIDProduct(product)
+	id := uuid.NewString()
+	product := factory.NewProduct(id, uuid.NewString(), "Product", 10, 1000)
 
 	table := []struct {
-		name              string
-		desc              string
-		url               string
-		input             string
-		expectOutput      ports.DTOResponseByIDProduct
-		expectStatus      int
-		productMockReturn *domain.Product
-		stockMockErr      error
+		name   string
+		desc   string
+		url    string
+		input  string
+		status int
+		err    *ports.Error
+		setup  func() ports.DTOResponseByIDProduct
 	}{
 		{
-			name:              "Success",
-			desc:              "should return the product for a valid ID",
-			url:               "/api/v1/products/%s",
-			input:             stockID,
-			productMockReturn: product,
-			expectStatus:      fiber.StatusOK,
-			expectOutput:      responseByIDProduct,
+			name:   "Success",
+			desc:   "should return the product for a valid ID",
+			url:    "/api/v1/products/%s",
+			input:  id,
+			status: fiber.StatusOK,
+			setup: func() ports.DTOResponseByIDProduct {
+				suite.service.EXPECT().ByID(gomock.Any(), id).Times(1).Return(product, nil)
+				return helpers.ToDTOResponseByIDProduct(product)
+			},
 		},
 		{
-			name:         "NotFound",
-			desc:         "should return 404 when product does not exist",
-			url:          "/api/v1/products/%s",
-			input:        stockID,
-			stockMockErr: ports.NewNotFoundError(nil),
-			expectOutput: ports.DTOResponseByIDProduct{},
-			expectStatus: fiber.StatusNotFound,
+			name:   "NotFound",
+			desc:   "should return 404 when product does not exist",
+			url:    "/api/v1/products/%s",
+			input:  id,
+			status: fiber.StatusNotFound,
+			err:    ports.NewNotFoundError(nil),
+			setup: func() ports.DTOResponseByIDProduct {
+				suite.service.EXPECT().ByID(gomock.Any(), id).Times(1).Return(nil, ports.NewNotFoundError(nil))
+				return ports.DTOResponseByIDProduct{}
+			},
 		},
 		{
-			name:         "InternalError",
-			desc:         "should return 500 when service fails unexpectedly",
-			url:          "/api/v1/products/%s",
-			input:        stockID,
-			stockMockErr: ports.NewInternalError(nil),
-			expectOutput: ports.DTOResponseByIDProduct{},
-			expectStatus: fiber.StatusInternalServerError,
+			name:   "InternalError",
+			desc:   "should return 500 when service fails unexpectedly",
+			url:    "/api/v1/products/%s",
+			input:  id,
+			status: fiber.StatusInternalServerError,
+			err:    ports.NewInternalError(nil),
+			setup: func() ports.DTOResponseByIDProduct {
+				suite.service.EXPECT().ByID(gomock.Any(), id).Times(1).Return(nil, ports.NewInternalError(nil))
+				return ports.DTOResponseByIDProduct{}
+			},
 		},
 	}
 
 	for _, tt := range table {
 		suite.Run(tt.name, func() {
-			suite.service.EXPECT().
-				ByID(gomock.Any(), tt.input).
-				Return(tt.productMockReturn, tt.stockMockErr).
-				Times(1)
-
 			url := fmt.Sprintf(tt.url, tt.input)
+			expect := tt.setup()
 
 			request := httptest.NewRequest(fiber.MethodGet, url, nil)
 			resp, err := suite.app.Test(request)
-			suite.NoError(err)
+			suite.Require().NoError(err)
 
-			suite.Equal(tt.expectStatus, resp.StatusCode, tt.desc)
+			body, err := io.ReadAll(resp.Body)
+			suite.Require().NoError(err)
+			suite.Require().Equal(tt.status, resp.StatusCode)
+
+			if tt.err != nil {
+				suite.RequirePortError(suite.T(), body, tt.err)
+				return
+			}
+
+			var got ports.DTOResponseByIDProduct
+			suite.Require().NoError(json.Unmarshal(body, &got))
+			suite.Require().Equal(expect, got, tt.desc)
 		})
 	}
 }
 
 func (suite *test) TestCreate() {
-	product := factory.NewProduct(uuid.NewString(), uuid.NewString())
-	responseCreate := helpers.ToDTOResponseCreate(product)
+	product := factory.NewProduct("", uuid.NewString(), "Product", 10, 1000)
 
 	table := []struct {
-		name              string
-		desc              string
-		url               string
-		input             *domain.Product
-		expectOutput      ports.DTOResponseCreateProduct
-		expectStatus      int
-		productMockReturn *domain.Product
-		stockMockerr      error
+		name   string
+		desc   string
+		url    string
+		input  ports.DTORequestCreateProduct
+		status int
+		err    *ports.Error
+		setup  func() ports.DTOResponseCreateProduct
 	}{
 		{
-			name:              "Success",
-			desc:              "should create the product and return 201",
-			url:               "/api/v1/products",
-			input:             product,
-			productMockReturn: product,
-			expectStatus:      fiber.StatusCreated,
-			expectOutput:      responseCreate,
+			name:   "Success",
+			desc:   "should create and return product",
+			url:    "/api/v1/products",
+			input:  helpers.ToDTORequestCreate(product),
+			status: fiber.StatusCreated,
+			setup: func() ports.DTOResponseCreateProduct {
+				suite.service.EXPECT().Create(gomock.Any(), product).Times(1).Return(product, nil)
+				return helpers.ToDTOResponseCreate(product)
+			},
 		},
 		{
-			name:              "BadRequest",
-			desc:              "should return 400 when request payload is invalid",
-			url:               "/api/v1/products",
-			input:             product,
-			productMockReturn: &domain.Product{},
-			stockMockerr:      ports.NewBadRequestError(nil),
-			expectOutput:      ports.DTOResponseCreateProduct{},
-			expectStatus:      fiber.StatusBadRequest,
+			name:   "NotFound",
+			desc:   "should return 404 if dependency not found",
+			url:    "/api/v1/products",
+			input:  helpers.ToDTORequestCreate(product),
+			status: fiber.StatusNotFound,
+			err:    ports.NewNotFoundError(nil),
+			setup: func() ports.DTOResponseCreateProduct {
+				suite.service.EXPECT().Create(gomock.Any(), product).Times(1).Return(nil, ports.NewNotFoundError(nil))
+				return ports.DTOResponseCreateProduct{}
+			},
 		},
 		{
-			name:              "InternalError",
-			desc:              "should return 500 when service fails unexpectedly",
-			url:               "/api/v1/products",
-			input:             product,
-			productMockReturn: &domain.Product{},
-			stockMockerr:      ports.NewInternalError(nil),
-			expectOutput:      ports.DTOResponseCreateProduct{},
-			expectStatus:      fiber.StatusInternalServerError,
+			name:   "InternalError",
+			desc:   "should return 500 when service fails",
+			url:    "/api/v1/products",
+			input:  helpers.ToDTORequestCreate(product),
+			status: fiber.StatusInternalServerError,
+			err:    ports.NewInternalError(nil),
+			setup: func() ports.DTOResponseCreateProduct {
+				suite.service.EXPECT().Create(gomock.Any(), product).Times(1).Return(nil, ports.NewInternalError(nil))
+				return ports.DTOResponseCreateProduct{}
+			},
 		},
 	}
 
 	for _, tt := range table {
 		suite.Run(tt.name, func() {
-			suite.service.EXPECT().
-				Create(gomock.Any(), gomock.Any()).
-				Return(tt.productMockReturn, tt.stockMockerr).
-				Times(1)
+			expect := tt.setup()
+			send, err := json.Marshal(tt.input)
+			suite.Require().NoError(err)
 
-			toJson, err := json.Marshal(ports.DTORequestCreateProduct{
-				Name:    product.Name,
-				Qtd:     product.Qtd,
-				Price:   product.Price,
-				StockID: product.StockID,
-			})
-
-			suite.NoError(err)
-
-			body := bytes.NewBufferString(string(toJson))
-
-			request := httptest.NewRequest(fiber.MethodPost, tt.url, body)
+			request := httptest.NewRequest(fiber.MethodPost, tt.url, bytes.NewBuffer(send))
 			request.Header.Set("Content-Type", "application/json")
 			resp, err := suite.app.Test(request)
-			suite.NoError(err)
+			suite.Require().NoError(err)
 
-			suite.Equal(tt.expectStatus, resp.StatusCode, tt.desc)
+			body, err := io.ReadAll(resp.Body)
+			suite.Require().NoError(err)
+			suite.Require().Equal(tt.status, resp.StatusCode)
+
+			if tt.err != nil {
+				suite.RequirePortError(suite.T(), body, tt.err)
+				return
+			}
+
+			var got ports.DTOResponseCreateProduct
+			suite.Require().NoError(json.Unmarshal(body, &got))
+			suite.Require().Equal(expect, got, tt.desc)
 		})
 	}
 }
 
 func (suite *test) TestUpdate() {
-	product := factory.NewProduct(uuid.NewString(), uuid.NewString())
+	input := factory.NewProduct(uuid.NewString(), uuid.NewString(), "Product", 10, 1000)
 
 	table := []struct {
-		name         string
-		desc         string
-		url          string
-		input        *domain.Product
-		expectStatus int
-		stockMockErr error
+		name   string
+		desc   string
+		url    string
+		input  ports.DTORequestUpdateProduct
+		status int
+		err    *ports.Error
+		setup  func()
 	}{
 		{
-			name:         "Success",
-			desc:         "should update the product and return 200",
-			url:          "/api/v1/products/%s",
-			input:        product,
-			expectStatus: fiber.StatusOK,
+			name:   "Success",
+			desc:   "should update successfully",
+			url:    "/api/v1/products/%s",
+			input:  helpers.ToDTORequestUpdateProduct(input),
+			status: fiber.StatusOK,
+			setup: func() {
+				suite.service.EXPECT().Update(gomock.Any(), input).Times(1).Return(nil)
+			},
 		},
 		{
-			name:         "BadRequest",
-			desc:         "should return 400 when request payload is invalid",
-			url:          "/api/v1/products/%s",
-			input:        product,
-			stockMockErr: ports.NewBadRequestError(nil),
-			expectStatus: fiber.StatusBadRequest,
+			name:   "NotFound",
+			desc:   "should return 404 when product does not exist",
+			url:    "/api/v1/products/%s",
+			input:  helpers.ToDTORequestUpdateProduct(input),
+			status: fiber.StatusNotFound,
+			err:    ports.NewNotFoundError(nil),
+			setup: func() {
+				suite.service.EXPECT().Update(gomock.Any(), input).Times(1).Return(ports.NewNotFoundError(nil))
+			},
 		},
 		{
-			name:         "InternalError",
-			desc:         "should return 500 when service fails unexpectedly",
-			url:          "/api/v1/products/%s",
-			input:        product,
-			stockMockErr: ports.NewInternalError(nil),
-			expectStatus: fiber.StatusInternalServerError,
+			name:   "InternalError",
+			desc:   "should return 500 when service fails",
+			url:    "/api/v1/products/%s",
+			input:  helpers.ToDTORequestUpdateProduct(input),
+			status: fiber.StatusInternalServerError,
+			err:    ports.NewInternalError(nil),
+			setup: func() {
+				suite.service.EXPECT().Update(gomock.Any(), input).Times(1).Return(ports.NewInternalError(nil))
+			},
 		},
 	}
 
 	for _, tt := range table {
 		suite.Run(tt.name, func() {
-			suite.service.EXPECT().
-				Update(gomock.Any(), gomock.Any()).
-				Return(tt.stockMockErr).
-				Times(1)
+			tt.setup()
+			send, err := json.Marshal(tt.input)
+			suite.Require().NoError(err)
 
-			toJson, err := json.Marshal(ports.DTORequestCreateProduct{
-				Name:    product.Name,
-				Qtd:     product.Qtd,
-				Price:   product.Price,
-				StockID: product.StockID,
-			})
-
-			suite.NoError(err)
-
-			url := fmt.Sprintf(tt.url, product.ID)
-
-			body := bytes.NewBufferString(string(toJson))
-
-			request := httptest.NewRequest(fiber.MethodPut, url, body)
+			url := fmt.Sprintf(tt.url, input.ID)
+			request := httptest.NewRequest(fiber.MethodPut, url, bytes.NewBuffer(send))
 			request.Header.Set("Content-Type", "application/json")
 			resp, err := suite.app.Test(request)
-			suite.NoError(err)
+			suite.Require().NoError(err)
 
-			suite.Equal(tt.expectStatus, resp.StatusCode, tt.desc)
+			body, err := io.ReadAll(resp.Body)
+			suite.Require().NoError(err)
+			suite.Require().Equal(tt.status, resp.StatusCode)
+
+			if tt.err != nil {
+				suite.RequirePortError(suite.T(), body, tt.err)
+				return
+			}
 		})
 	}
 }
 
 func (suite *test) TestDelete() {
-	product := factory.NewProduct(uuid.NewString(), uuid.NewString())
+	id := uuid.NewString()
 
 	table := []struct {
-		name         string
-		desc         string
-		url          string
-		input        *domain.Product
-		expectStatus int
-		stockMockErr error
+		name   string
+		desc   string
+		url    string
+		input  string
+		status int
+		err    *ports.Error
+		setup  func()
 	}{
 		{
-			name:         "Success",
-			desc:         "should delete the product and return 200",
-			url:          "/api/v1/products/%s",
-			input:        product,
-			expectStatus: fiber.StatusOK,
-			stockMockErr: nil,
+			name:   "Success",
+			desc:   "should delete successfully",
+			url:    "/api/v1/products/%s",
+			input:  id,
+			status: fiber.StatusOK,
+			setup: func() {
+				suite.service.EXPECT().Delete(gomock.Any(), id).Times(1).Return(nil)
+			},
 		},
 		{
-			name:         "NotFound",
-			desc:         "should return 404 when product does not exist",
-			url:          "/api/v1/products/%s",
-			input:        product,
-			stockMockErr: ports.NewNotFoundError(nil),
-			expectStatus: fiber.StatusNotFound,
+			name:   "NotFound",
+			desc:   "should return 404",
+			url:    "/api/v1/products/%s",
+			input:  id,
+			status: fiber.StatusNotFound,
+			err:    ports.NewNotFoundError(nil),
+			setup: func() {
+				suite.service.EXPECT().Delete(gomock.Any(), id).Times(1).Return(ports.NewNotFoundError(nil))
+			},
 		},
 		{
-			name:         "InternalError",
-			desc:         "should return 500 when service fails unexpectedly",
-			url:          "/api/v1/products/%s",
-			input:        product,
-			stockMockErr: ports.NewInternalError(nil),
-			expectStatus: fiber.StatusInternalServerError,
+			name:   "InternalError",
+			desc:   "should return 500",
+			url:    "/api/v1/products/%s",
+			input:  id,
+			status: fiber.StatusInternalServerError,
+			err:    ports.NewInternalError(nil),
+			setup: func() {
+				suite.service.EXPECT().Delete(gomock.Any(), id).Times(1).Return(ports.NewInternalError(nil))
+			},
 		},
 	}
 
 	for _, tt := range table {
 		suite.Run(tt.name, func() {
-			suite.service.EXPECT().
-				Delete(gomock.Any(), tt.input.ID).
-				Return(tt.stockMockErr).
-				Times(1)
-
-			url := fmt.Sprintf(tt.url, product.ID)
-
+			tt.setup()
+			url := fmt.Sprintf(tt.url, tt.input)
 			request := httptest.NewRequest(fiber.MethodDelete, url, nil)
 			resp, err := suite.app.Test(request)
-			suite.NoError(err)
+			suite.Require().NoError(err)
 
-			suite.Equal(tt.expectStatus, resp.StatusCode, tt.desc)
+			body, err := io.ReadAll(resp.Body)
+			suite.Require().NoError(err)
+			suite.Require().Equal(tt.status, resp.StatusCode)
+
+			if tt.err != nil {
+				suite.RequirePortError(suite.T(), body, tt.err)
+				return
+			}
 		})
 	}
 }
