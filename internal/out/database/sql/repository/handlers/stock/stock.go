@@ -60,31 +60,50 @@ func (repository *Repository) ByID(ctx context.Context, id string) (*domain.Stoc
 	return model.ToDomain()
 }
 
-func (repository *Repository) Create(ctx context.Context, stock *domain.Stock) error {
+func (repository *Repository) CreateAtomic(ctx context.Context, stock *domain.Stock) error {
 	return repository.db.RunInTx(ctx, &sql.TxOptions{}, func(ctx context.Context, tx bun.Tx) error {
 		model, err := schema.FromStock(stock)
 		if err != nil {
 			return err
 		}
 
-		_, err = tx.NewInsert().Model(model).Exec(ctx)
+		if _, err = tx.NewInsert().Model(model).Exec(ctx); err != nil {
+			return err
+		}
+
+		if len(model.Items) > 0 {
+			_, err = tx.NewInsert().Model(&model.Items).Exec(ctx)
+		}
+
 		return err
 	})
 }
 
-func (repository *Repository) Update(ctx context.Context, stock *domain.Stock) error {
+func (repository *Repository) UpdateAtomic(ctx context.Context, stock *domain.Stock) error {
 	return repository.db.RunInTx(ctx, &sql.TxOptions{}, func(ctx context.Context, tx bun.Tx) error {
 		model, err := schema.FromStock(stock)
 		if err != nil {
 			return err
 		}
 
-		_, err = tx.NewUpdate().Model(&model).WherePK().Exec(ctx)
-		return err
+		result, err := tx.NewUpdate().Model(model).WherePK().Exec(ctx)
+		if err != nil {
+			return err
+		}
+
+		rows, err := result.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if rows == 0 {
+			return sql.ErrNoRows
+		}
+
+		return nil
 	})
 }
 
-func (repository *Repository) Delete(ctx context.Context, id string) error {
+func (repository *Repository) DeleteAtomic(ctx context.Context, id string) error {
 	return repository.db.RunInTx(ctx, &sql.TxOptions{}, func(ctx context.Context, tx bun.Tx) error {
 		res, err := tx.NewDelete().Model((*schema.Stock)(nil)).Where("id = ?", id).Exec(ctx)
 		if err != nil {

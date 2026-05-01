@@ -72,46 +72,46 @@ func (mr *MockStockRepositoryMockRecorder) ByID(ctx, id any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ByID", reflect.TypeOf((*MockStockRepository)(nil).ByID), ctx, id)
 }
 
-// Create mocks base method.
-func (m *MockStockRepository) Create(ctx context.Context, stock *domain.Stock) error {
+// CreateAtomic mocks base method.
+func (m *MockStockRepository) CreateAtomic(ctx context.Context, stock *domain.Stock) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Create", ctx, stock)
+	ret := m.ctrl.Call(m, "CreateAtomic", ctx, stock)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
-// Create indicates an expected call of Create.
-func (mr *MockStockRepositoryMockRecorder) Create(ctx, stock any) *gomock.Call {
+// CreateAtomic indicates an expected call of CreateAtomic.
+func (mr *MockStockRepositoryMockRecorder) CreateAtomic(ctx, stock any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Create", reflect.TypeOf((*MockStockRepository)(nil).Create), ctx, stock)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateAtomic", reflect.TypeOf((*MockStockRepository)(nil).CreateAtomic), ctx, stock)
 }
 
-// Delete mocks base method.
-func (m *MockStockRepository) Delete(ctx context.Context, id string) error {
+// DeleteAtomic mocks base method.
+func (m *MockStockRepository) DeleteAtomic(ctx context.Context, id string) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Delete", ctx, id)
+	ret := m.ctrl.Call(m, "DeleteAtomic", ctx, id)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
-// Delete indicates an expected call of Delete.
-func (mr *MockStockRepositoryMockRecorder) Delete(ctx, id any) *gomock.Call {
+// DeleteAtomic indicates an expected call of DeleteAtomic.
+func (mr *MockStockRepositoryMockRecorder) DeleteAtomic(ctx, id any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Delete", reflect.TypeOf((*MockStockRepository)(nil).Delete), ctx, id)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteAtomic", reflect.TypeOf((*MockStockRepository)(nil).DeleteAtomic), ctx, id)
 }
 
-// Update mocks base method.
-func (m *MockStockRepository) Update(ctx context.Context, stock *domain.Stock) error {
+// UpdateAtomic mocks base method.
+func (m *MockStockRepository) UpdateAtomic(ctx context.Context, stock *domain.Stock) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Update", ctx, stock)
+	ret := m.ctrl.Call(m, "UpdateAtomic", ctx, stock)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
-// Update indicates an expected call of Update.
-func (mr *MockStockRepositoryMockRecorder) Update(ctx, stock any) *gomock.Call {
+// UpdateAtomic indicates an expected call of UpdateAtomic.
+func (mr *MockStockRepositoryMockRecorder) UpdateAtomic(ctx, stock any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Update", reflect.TypeOf((*MockStockRepository)(nil).Update), ctx, stock)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateAtomic", reflect.TypeOf((*MockStockRepository)(nil).UpdateAtomic), ctx, stock)
 }
 
 // MockStockService is a mock of StockService interface.
@@ -323,18 +323,18 @@ func (mr *MockProductRepositoryMockRecorder) CreateAtomic(ctx, product any) *gom
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateAtomic", reflect.TypeOf((*MockProductRepository)(nil).CreateAtomic), ctx, product)
 }
 
-// Delete mocks base method.
-func (m *MockProductRepository) Delete(ctx context.Context, id string) error {
+// DeleteAtomic mocks base method.
+func (m *MockProductRepository) DeleteAtomic(ctx context.Context, id string) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Delete", ctx, id)
+	ret := m.ctrl.Call(m, "DeleteAtomic", ctx, id)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
-// Delete indicates an expected call of Delete.
-func (mr *MockProductRepositoryMockRecorder) Delete(ctx, id any) *gomock.Call {
+// DeleteAtomic indicates an expected call of DeleteAtomic.
+func (mr *MockProductRepositoryMockRecorder) DeleteAtomic(ctx, id any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Delete", reflect.TypeOf((*MockProductRepository)(nil).Delete), ctx, id)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteAtomic", reflect.TypeOf((*MockProductRepository)(nil).DeleteAtomic), ctx, id)
 }
 
 // UpdateAtomic mocks base method.

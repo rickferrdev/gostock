@@ -105,7 +105,7 @@ func (service *Service) Create(ctx context.Context, stock *domain.Stock) (*domai
 		Items:    make([]*domain.Product, 0),
 	}
 
-	if err := service.stock.Create(ctx, &empty); err != nil {
+	if err := service.stock.CreateAtomic(ctx, &empty); err != nil {
 		return nil, service.Errors(err)
 	}
 
@@ -117,7 +117,7 @@ func (service *Service) Occupancy(ctx context.Context, id string) (uint64, error
 		return 0, err
 	}
 
-	stock, err := service.ByID(ctx, id)
+	stock, err := service.stock.ByID(ctx, id)
 	if err != nil {
 		return 0, service.Errors(err)
 	}
@@ -147,7 +147,7 @@ func (service *Service) Update(ctx context.Context, stock *domain.Stock) error {
 		return service.Errors(err)
 	}
 
-	err := service.stock.Update(ctx, stock)
+	err := service.stock.UpdateAtomic(ctx, stock)
 	if err != nil {
 		return service.Errors(err)
 	}
@@ -165,7 +165,7 @@ func (service *Service) Remove(ctx context.Context, id string) error {
 		return service.Errors(err)
 	}
 
-	if err := service.stock.Delete(ctx, id); err != nil {
+	if err := service.stock.DeleteAtomic(ctx, id); err != nil {
 		return service.Errors(err)
 	}
 

@@ -11,10 +11,10 @@ type StockRepository interface {
 	All(ctx context.Context) ([]*domain.Stock, error)
 	ByID(ctx context.Context, id string) (*domain.Stock, error)
 
-	Create(ctx context.Context, stock *domain.Stock) error
+	CreateAtomic(ctx context.Context, stock *domain.Stock) error
 
-	Update(ctx context.Context, stock *domain.Stock) error
-	Delete(ctx context.Context, id string) error
+	UpdateAtomic(ctx context.Context, stock *domain.Stock) error
+	DeleteAtomic(ctx context.Context, id string) error
 }
 
 type StockService interface {
@@ -39,7 +39,7 @@ type ProductRepository interface {
 	CreateAtomic(ctx context.Context, product *domain.Product) error
 
 	UpdateAtomic(ctx context.Context, product *domain.Product) error
-	Delete(ctx context.Context, id string) error
+	DeleteAtomic(ctx context.Context, id string) error
 }
 
 type ProductService interface {
