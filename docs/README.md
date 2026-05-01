@@ -9,7 +9,7 @@
 
 [![Go Version](https://img.shields.io/badge/Go-1.25+-00ADD8?style=for-the-badge&logo=go&logoColor=white)](https://go.dev/dl/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](LICENSE)
-[![CI](https://img.shields.io/github/actions/workflow/status/rickferrdev/gostock/ci.yml?branch=main&style=for-the-badge&logo=github-actions&logoColor=white&label=CI)](https://github.com/rickferrdev/gostock/actions)
+[![CI](https://img.shields.io/badge/CI-manual%20verification-yellow?style=for-the-badge&logo=github-actions&logoColor=white)](https://github.com/rickferrdev/gostock/actions)
 
 [![Fiber](https://img.shields.io/badge/Fiber-v3-00ACD7?style=flat-square&logo=go&logoColor=white)](https://github.com/gofiber/fiber)
 [![Bun ORM](https://img.shields.io/badge/Bun-ORM-FF6B6B?style=flat-square&logo=go&logoColor=white)](https://github.com/uptrace/bun)
@@ -192,10 +192,19 @@ make clean     # Remove build artifacts and coverage files
 
 ## 🔄 CI/CD
 
-GitHub Actions runs on every push and pull request to `main`:
+GitHub Actions workflows are currently manual-only because account billing limits can make hosted runs fail before project checks execute. Until hosted CI is available again, validate changes locally before pushing:
+
+```bash
+go test ./...
+go test -cover ./internal/core/service/... ./internal/in/http/api/handlers/... ./internal/out/database/sql/repository/handlers/...
+go vet ./...
+```
+
+When Actions are enabled again, the CI workflow covers:
 
 1. **golangci-lint** — static analysis
-2. **tests** — `make test` (with `-race` flag)
+2. **govulncheck** — vulnerability scanning
+3. **tests** — `make test`
 
 Dependabot is configured to keep **DevContainer** features up to date weekly.
 

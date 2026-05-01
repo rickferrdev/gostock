@@ -1,2 +1,4 @@
 .env
 *.xml
+coverage.out
+coverage.html
